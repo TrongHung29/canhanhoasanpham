@@ -1,0 +1,17 @@
+pandas
+numpy
+duckdb
+scikit-learn
+implicit
+lightgbm
+sentence-transformers
+mlflow
+fastapi
+uvicorn
+streamlit
+pytrends
+psycopg2-binary
+sqlalchemy
+kaggle
+pyarrow
+fastparquet

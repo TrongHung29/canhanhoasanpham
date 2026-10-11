@@ -1,0 +1,180 @@
+Kế hoạch dự án: Gợi ý sản phẩm theo tìm kiếm, giới tính và xu hướng
+1. Bài toán
+Mục tiêu: với mỗi người dùng, dự đoán xác suất họ mua từng sản phẩm trong 7 ngày tới, rồi hiển thị top-12 sản phẩm có xác suất cao nhất.
+Tín hiệu đầu vào: lịch sử mua và xem, từ khóa tìm kiếm, giới tính và tuổi, xu hướng thị trường.
+Câu hỏi nghiên cứu: thêm lần lượt tìm kiếm, hồ sơ người dùng và xu hướng có làm tăng khả năng dự đoán mua so với chỉ dùng lịch sử mua không?
+2. Nguồn dữ liệu
+Không có bộ công khai nào có đủ tìm kiếm, giới tính và giao dịch trên cùng một hệ ID. Cách thực tế là lấy H&M làm lõi (dữ liệu thật), rồi bổ sung phần thiếu và đánh dấu rõ phần nào thật, phần nào mô phỏng.
+#
+Nguồn
+Loại
+Nội dung
+Thật / Mô phỏng
+1
+PostgreSQL
+SQL
+customers: tuổi, trạng thái thành viên, gender
+Tuổi, thành viên: thật. Giới tính: suy ra
+2
+articles.csv
+File
+Loại sản phẩm, màu, nhóm hàng (Ladieswear, Menswear...), mô tả
+Thật
+3
+transactions
+Data lake (Parquet)
+Lịch sử mua, giá, kênh bán
+Thật
+4
+search_log
+Data lake (JSON/Parquet)
+Từ khóa tìm kiếm theo người dùng và thời gian
+Mô phỏng
+5
+view_events
+Data lake (Parquet)
+Xem sản phẩm, thêm giỏ
+Mô phỏng
+6
+trends.csv
+File / API
+Độ quan tâm theo từ khóa (Google Trends qua pytrends) và độ bán chạy nội bộ theo tuần
+Google Trends: thật. Độ bán chạy: tính từ nguồn 3
+
+Nếu bạn có dữ liệu thật của một shop (đơn hàng, log tìm kiếm, giới tính khai báo), thay thẳng vào nguồn 1, 3, 4, 5 và bỏ phần mô phỏng. Đây là phương án tốt nhất.
+Cách tạo phần suy ra và mô phỏng
+Giới tính: H&M không có cột này. Tính tỷ lệ mua nhóm Ladieswear so với Menswear của mỗi người, gán nhãn female / male / unknown theo ngưỡng. Ghi rõ đây là biến suy ra, không phải khai báo.
+Tìm kiếm: với một phần giao dịch, sinh từ khóa từ thuộc tính sản phẩm (loại + màu, ví dụ "áo thun đen"), thêm nhiễu: từ khóa chung chung, sai chính tả, từ khóa không dẫn tới mua. Thời điểm tìm kiếm đặt trước lúc mua từ 0 đến 7 ngày.
+Xem sản phẩm: sinh từ giao dịch cộng sản phẩm tương tự cùng nhóm không được mua.
+Cố định random seed, lưu cấu hình sinh dữ liệu trong repo để tái lập được.
+Hạn chế cần ghi trong báo cáo: lợi ích của tìm kiếm đo được trên dữ liệu mô phỏng phản ánh giả định của bạn, không chứng minh hiệu quả ngoài thực tế.
+3. Kiến trúc
+SQL (customers) ---------+
+CSV (articles, trends) --+--> Ingestion --> Bronze --> Silver --> Gold
+Lake (transactions,      |    (Python)     (thô)      (sạch)     (đặc trưng)
+      search, views) ----+
+ 
+Gold: user_features, item_features, user_item_features, trend_features
+ 
+Gold --> Tạo ứng viên --> Xếp hạng --> Luật lọc --> API / Demo
+         (nhiều nguồn)    (LightGBM)                  (FastAPI, Streamlit)
+
+Công nghệ: PostgreSQL, DuckDB, Parquet, scikit-learn, implicit, LightGBM, sentence-transformers, MLflow, FastAPI, Streamlit, Docker Compose.
+4. Lịch thực hiện (10 tuần)
+Tuần
+Công việc
+Đầu ra
+1
+Chốt phạm vi, tải H&M, lấy mẫu 100.000 khách, dựng PostgreSQL bằng Docker, viết data dictionary
+Môi trường chạy được, mô tả dữ liệu
+2
+Suy ra giới tính, sinh search_log và view_events, lấy Google Trends, ghi lại cấu hình sinh dữ liệu
+6 nguồn ở tầng landing
+3
+Ingestion cả 6 nguồn vào Bronze, bảng ánh xạ ID, ghi data catalog
+Bronze, user_map, item_map
+4
+Làm sạch, 10+ kiểm tra chất lượng, EDA (độ thưa, long-tail, mùa vụ, phân bố giới tính và tuổi)
+Silver, báo cáo chất lượng, notebook EDA
+5
+Xây đặc trưng (mục 5), chia dữ liệu theo thời gian
+Gold
+6
+Baseline (popularity, repurchase) và ALS
+Kết quả mốc so sánh
+7
+Tạo ứng viên từ nhiều nguồn, huấn luyện LightGBM ranker
+Mô hình xếp hạng
+8
+Ablation theo tín hiệu và theo nhóm người dùng, kiểm định thống kê
+Bảng và biểu đồ kết quả
+9
+API và giao diện demo, lớp luật lọc
+Demo chạy được
+10
+Báo cáo, slide, video demo
+Bản nộp
+5. Đặc trưng theo từng tín hiệu
+Tín hiệu
+Đặc trưng
+Lịch sử mua
+Số lần mua sản phẩm/loại/màu của người này, ngày kể từ lần mua gần nhất, tổng chi, giá trung bình
+Tìm kiếm
+Số truy vấn 7/30 ngày, độ tương đồng giữa truy vấn gần nhất và mô tả sản phẩm (embedding), số lần tìm đúng loại sản phẩm này
+Xem và giỏ hàng
+Số lần xem, số lần thêm giỏ chưa mua của sản phẩm này, thời gian từ lần xem cuối
+Hồ sơ
+Nhóm tuổi, giới tính suy ra, hạng thành viên, kênh bán ưa dùng
+Xu hướng
+Số bán 7/28 ngày gần nhất của sản phẩm, tốc độ tăng so với tuần trước, điểm Google Trends của loại sản phẩm, mùa vụ
+Sản phẩm
+Loại, màu, nhóm hàng, giá, tuổi sản phẩm trong catalog, độ phổ biến
+
+Mọi đặc trưng chỉ được tính từ dữ liệu trước ngày cắt của mỗi tập, để tránh rò rỉ.
+6. Mô hình: hai giai đoạn
+Giai đoạn 1: tạo ứng viên
+Khoảng 100-200 sản phẩm mỗi người, gộp từ:
+Sản phẩm đã mua gần đây (mua lại)
+ALS theo lịch sử tương tác
+Sản phẩm khớp với truy vấn tìm kiếm gần nhất (so khớp embedding)
+Sản phẩm bán chạy trong nhóm tuổi và giới tính của người dùng
+Sản phẩm tương tự món đã xem hoặc thêm giỏ
+Giai đoạn 2: xếp hạng
+Với mỗi cặp (người dùng, ứng viên), nhãn là 1 nếu mua trong 7 ngày tiếp theo, ngược lại là 0. Huấn luyện LightGBM xếp hạng, đầu ra là điểm xác suất mua, sắp xếp giảm dần rồi lấy top-12.
+import lightgbm as lgb
+ 
+ranker = lgb.LGBMRanker(
+    objective="lambdarank",
+    n_estimators=500,
+    learning_rate=0.05,
+    num_leaves=63,
+    subsample=0.8,
+    colsample_bytree=0.8,
+)
+ranker.fit(
+    X_train, y_train, group=g_train,
+    eval_set=[(X_val, y_val)], eval_group=[g_val],
+    eval_at=[12],
+    callbacks=[lgb.early_stopping(30)],
+)
+scores = ranker.predict(X_test)
+
+Lớp luật sau mô hình: loại sản phẩm vừa mua, loại sản phẩm không khớp giới tính khi người dùng đã được xác định rõ, giới hạn số sản phẩm trùng loại để tăng đa dạng.
+7. Đánh giá
+Chia dữ liệu theo thời gian: train đến 3 tuần cuối, validation là tuần kế cuối, test là tuần cuối.
+Chỉ số: MAP@12 (chính), Recall@12, NDCG@12, Coverage, Diversity.
+Ablation theo tín hiệu (phần cốt lõi)
+Cấu hình
+Tín hiệu dùng
+A
+Chỉ lịch sử mua
+B
+A + hồ sơ (tuổi, giới tính)
+C
+A + tìm kiếm và xem
+D
+A + xu hướng
+E
+Tất cả
+
+Báo cáo riêng cho 3 nhóm: người dùng nhiều lịch sử (từ 10 giao dịch), ít lịch sử (1-3 giao dịch), người dùng mới hoàn toàn. Kiểm định bằng bootstrap 1.000 lần giữa A và E. Phân tích mức quan trọng của đặc trưng (feature importance, SHAP) để trả lời tín hiệu nào đóng góp nhiều nhất.
+Với cấu hình dùng dữ liệu mô phỏng (B, C), tách riêng kết quả và ghi chú rõ trong bảng.
+8. Sản phẩm bàn giao
+Pipeline chạy từ đầu đến cuối bằng một lệnh (make all)
+Data catalog, data dictionary, báo cáo chất lượng dữ liệu
+Tài liệu mô tả cách suy ra và mô phỏng dữ liệu, kèm mã sinh dữ liệu
+Notebook EDA và kết quả ablation
+API GET /recommend?user_id=...&k=12 và giao diện Streamlit (chọn người dùng, nhập từ khóa tìm kiếm, xem gợi ý thay đổi)
+Báo cáo, slide, video demo
+9. Tiêu chí thành công
+Dùng đủ ba loại nguồn: SQL, file, data lake
+Mô hình hai giai đoạn vượt baseline popularity ít nhất 2 lần về MAP@12
+Cấu hình E tốt hơn cấu hình A, có kiểm định thống kê
+Có phân tích riêng cho cold-start
+Demo cho thấy kết quả thay đổi khi người dùng tìm kiếm từ khóa mới
+10. Rủi ro
+Dữ liệu mô phỏng thiên lệch kết quả: nếu tìm kiếm sinh trực tiếp từ sản phẩm sẽ mua thì mô hình dễ đạt điểm cao giả tạo. Thêm nhiễu đủ lớn và báo cáo kết quả có và không có tín hiệu mô phỏng.
+Giới tính suy ra có thể sai: dùng nhãn unknown khi không đủ bằng chứng, không ép mọi người vào hai nhóm.
+Rò rỉ dữ liệu: luôn tính đặc trưng trước ngày cắt.
+Quá tải: nếu trễ, bỏ Google Trends và Streamlit, giữ ablation.
+Quyền riêng tư: hash customer_id, không lưu thông tin nhận dạng cá nhân.

@@ -1,0 +1,19 @@
+random_seed: 42
+gender_inference:
+  method: "ratio_based"
+  female_threshold: 0.7
+  male_threshold: 0.7
+  default: "unknown"
+search_log:
+  days_before_purchase_min: 0
+  days_before_purchase_max: 7
+  noise_ratio: 0.3
+  noise_types:
+    - "general_term"
+    - "typo"
+    - "no_purchase"
+view_events:
+  same_group_items_to_view: 3
+trends:
+  use_google_trends: true
+  google_trends_retries: 3
